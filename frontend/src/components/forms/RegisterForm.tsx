@@ -1,0 +1,64 @@
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Link } from "react-router-dom";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { Label } from "@/components/ui/Label";
+import { Button } from "@/components/ui/Button";
+import { useRegister } from "@/hooks/useAccounts";
+import { ROUTES } from "@/constants/routes";
+
+const schema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+export function RegisterForm() {
+  const reg = useRegister();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+
+  return (
+    <Card title="Create your account">
+      <form className="space-y-4" onSubmit={handleSubmit((v) => reg.mutate(v))} noValidate>
+        <div>
+          <Label htmlFor="name">Full name</Label>
+          <Input id="name" autoComplete="name" invalid={!!errors.name} {...register("name")} />
+          {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name.message}</p>}
+        </div>
+        <div>
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" type="email" autoComplete="email" invalid={!!errors.email} {...register("email")} />
+          {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>}
+        </div>
+        <div>
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            invalid={!!errors.password}
+            {...register("password")}
+          />
+          {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>}
+        </div>
+        <Button type="submit" loading={reg.isPending} className="w-full">
+          Create account
+        </Button>
+        <p className="text-center text-sm text-gray-600">
+          Already have an account?{" "}
+          <Link to={ROUTES.LOGIN} className="text-brand-600 hover:underline">
+            Sign in
+          </Link>
+        </p>
+      </form>
+    </Card>
+  );
+}
