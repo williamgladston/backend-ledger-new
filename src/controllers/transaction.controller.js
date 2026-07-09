@@ -189,54 +189,103 @@ async function createInitialFundsTransaction(req, res) {
         })
     }
 
+    if (toUserAccount.status !== "ACTIVE") {
+        return res.status(400).json({
+            message: "toAccount must be ACTIVE to receive initial funds"
+        })
+    }
+
     const fromUserAccount = await accountModel.findOne({
-        user: req.user._id
+        user: req.user._id,
+        status: "ACTIVE"
     })
 
     if (!fromUserAccount) {
         return res.status(400).json({
-            message: "System user account not found"
+            message: "System user has no ACTIVE source account to fund from"
         })
     }
 
+    if (String(fromUserAccount._id) === String(toAccount)) {
+        return res.status(400).json({
+            message: "fromAccount and toAccount must be different"
+        })
+    }
+
+    // Idempotency: if a transaction with this key already exists, return its current state
+    // instead of running the side effects again. Same shape as createTransaction's check.
+    const existing = await transactionModel.findOne({ idempotencyKey })
+    if (existing) {
+        if (existing.status === "COMPLETED") {
+            return res.status(200).json({
+                message: "Transaction already processed",
+                transaction: existing
+            })
+        }
+        if (existing.status === "PENDING") {
+            return res.status(200).json({ message: "Transaction is still processing" })
+        }
+        return res.status(500).json({
+            message: "Previous transaction with this idempotencyKey is in a non-success state, please retry"
+        })
+    }
 
     const session = await mongoose.startSession()
-    session.startTransaction()
+    try {
+        session.startTransaction()
 
-    const transaction = new transactionModel({
-        fromAccount: fromUserAccount._id,
-        toAccount,
-        amount,
-        idempotencyKey,
-        status: "PENDING"
-    })
+        // 1) Insert the transaction doc FIRST so we have a real _id to reference
+        //    in the ledger rows. Using Model.create([...], { session }) returns an
+        //    array of inserted docs, of which we take the first element.
+        const createdTransaction = (await transactionModel.create([ {
+            fromAccount: fromUserAccount._id,
+            toAccount,
+            amount,
+            idempotencyKey,
+            status: "PENDING"
+        } ], { session }))[ 0 ]
 
-    const debitLedgerEntry = await ledgerModel.create([ {
-        account: fromUserAccount._id,
-        amount: amount,
-        transaction: transaction._id,
-        type: "DEBIT"
-    } ], { session })
+        // 2) Write the two immutable ledger rows
+        await ledgerModel.create([ {
+            account: fromUserAccount._id,
+            amount: amount,
+            transaction: createdTransaction._id,
+            type: "DEBIT"
+        } ], { session })
 
-    const creditLedgerEntry = await ledgerModel.create([ {
-        account: toAccount,
-        amount: amount,
-        transaction: transaction._id,
-        type: "CREDIT"
-    } ], { session })
+        await ledgerModel.create([ {
+            account: toAccount,
+            amount: amount,
+            transaction: createdTransaction._id,
+            type: "CREDIT"
+        } ], { session })
 
-    transaction.status = "COMPLETED"
-    await transaction.save({ session })
+        // 3) Mark the transaction COMPLETED, then commit the session so all
+        //    three writes succeed or none of them do.
+        createdTransaction.status = "COMPLETED"
+        await createdTransaction.save({ session })
 
-    await session.commitTransaction()
-    session.endSession()
+        await session.commitTransaction()
 
-    return res.status(201).json({
-        message: "Initial funds transaction completed successfully",
-        transaction: transaction
-    })
-
-
+        return res.status(201).json({
+            message: "Initial funds transaction completed successfully",
+            transaction: createdTransaction
+        })
+    } catch (error) {
+        // Abort the in-flight session so partial writes are rolled back, then
+        // surface the real error to the caller (and the server log) instead of
+        // a generic 500.
+        try {
+            await session.abortTransaction()
+        } catch (_) { /* ignore — session may already be in a terminal state */ }
+        console.error("[transactions] createInitialFundsTransaction failed:", error)
+        return res.status(500).json({
+            message: "Initial funds transaction failed, please retry",
+            error: error.message
+        })
+    } finally {
+        session.endSession()
+    }
 }
 
 module.exports = {
