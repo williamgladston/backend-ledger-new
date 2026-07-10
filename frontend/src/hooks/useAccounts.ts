@@ -45,6 +45,7 @@ export function useCreateTransaction() {
     mutationFn: transactionsApi.createTransaction,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.accounts });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
       push({ kind: "success", message: "Transaction completed" });
     },
     onError: (err) =>
@@ -59,6 +60,7 @@ export function useCreateInitialFunds() {
     mutationFn: transactionsApi.createInitialFunds,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.accounts });
+      qc.invalidateQueries({ queryKey: ["transactions"] });
       push({ kind: "success", message: "Initial funds sent" });
     },
     onError: (err) =>

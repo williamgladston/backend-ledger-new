@@ -8,8 +8,18 @@ const transactionRoutes = Router();
  * - POST /api/transactions/
  * - Create a new transaction
  */
-
 transactionRoutes.post("/", authMiddleware.authMiddleware, transactionController.createTransaction)
+
+/**
+ * - GET /api/transactions/
+ * - List the caller's transaction history. Optional query params:
+ *   ?accountId=...  (must be one of the caller's accounts)
+ *   ?status=PENDING|COMPLETED|FAILED|REVERSED
+ *   ?limit=1..100, default 50
+ *   ?skip=0, default 0
+ *   Returns enriched rows with `direction` and counterparty info.
+ */
+transactionRoutes.get("/", authMiddleware.authMiddleware, transactionController.getTransactionsController)
 
 
 /**

@@ -2,7 +2,8 @@ const express = require("express")
 const cookieParser = require("cookie-parser")
 const cors = require("cors")
 
-
+const requestLogger = require("./middleware/logger.middleware")
+const { notFoundHandler, errorHandler } = require("./middleware/error.middleware")
 
 const app = express()
 
@@ -28,28 +29,38 @@ app.use(cors({
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     exposedHeaders: ["Content-Type", "Authorization"],
+    // Cache the preflight result for an hour in the browser so the round-trip
+    // isn't paid on every request.
+    maxAge: 3600,
 }))
 
-app.use(express.json())
+app.use(express.json({ limit: "1mb" }))
 app.use(cookieParser())
+app.use(requestLogger)
 
 /**
- * - Routes required
+ * Routes
  */
 const authRouter = require("./routes/auth.routes")
 const accountRouter = require("./routes/account.routes")
 const transactionRoutes = require("./routes/transaction.routes")
 
-/**
- * - Use Routes
- */
-
 app.get("/", (req, res) => {
-    res.send("Ledger Service is up and running")
+    res.json({ status: "ok", service: "ledger" })
 })
 
 app.use("/api/auth", authRouter)
 app.use("/api/accounts", accountRouter)
 app.use("/api/transactions", transactionRoutes)
+
+/**
+ * Error handlers must be the last things mounted.
+ *  - notFoundHandler responds 404 for unknown routes (with CORS headers so
+ *    the browser doesn't blame CORS).
+ *  - errorHandler catches anything that next(err) forwards — including
+ *    rejections from async controllers wrapped in asyncHandler.
+ */
+app.use(notFoundHandler)
+app.use(errorHandler)
 
 module.exports = app
